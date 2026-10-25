@@ -1,0 +1,183 @@
+# AKKO Link Monitor
+
+面向 **AKKO 3098N** 的 Windows 托盘电量与连接诊断工具。支持 BT1 和 2.4G；只监控本机选定的这一把键盘。
+
+托盘直接显示电量数字。**左键双击托盘即可标记一次卡顿**，成功后图标变成青蓝色「✓」约 2 秒，再恢复电量；主窗口从右键菜单打开。**按住托盘约 1 秒后松开，开始长断联标记；再次长按后松开结束**，不用一直按住。
+
+> 这是独立的诊断工具，不是 AKKO 官方软件。电量是设备估算或 Windows 缓存；疑似卡键、查询超时和蓝牙断开都不能单独证明硬件故障。工具不刷固件、不改键、不注入松开事件，也不能修复射频干扰。
+
+## 功能
+
+- 一个电量数字图标，按最近识别到的输入来源切换 BT1／2.4G。未知显示 `?`；悬停可查看来源、读取年龄和状态。
+- 支持普通权限登录自启动，无控制台；默认仅自启动时隐藏窗口，后台照常记录。
+- X 和最小化均收起到托盘，右键「退出」才结束程序。
+- 双击和窗口按钮共用持久标记，附带输入来源、按住的修饰键及会话编号。连续日志暂停后，手动标记仍然保存。
+- 分接口统计按下、松开、重复、未配对松开、事件间隔及当前按住状态。
+- 普通键默认按住至少 2 秒且重复至少 10 次记录疑似卡键；左右 Alt、Ctrl、Shift、Win 未松开至少 5 秒也记录，不要求重复。阈值可调。
+- 蓝牙连接状态与 2.4G 查询超时分别记录。记录观察结束、收到松开和恢复查询响应，不将它们统称为无线已经正常。
+- 可选 USB 报告计时，用于进一步分析 USB 传输。日常关闭，不随登录自启动请求 UAC。
+
+## 运行条件
+
+- Windows 10／11，64 位 Python 3.10 或更高，安装时包含 tkinter。已在 Windows 11 + Python 3.13 验证；其他组合仍需实测。
+- 系统 Windows PowerShell 5.1，用于蓝牙状态观察和创建启动快捷方式。
+- 无第三方 Python 运行依赖，无需 pip 安装。
+- 蓝牙需要先在 Windows 中配对 `AKKO 3098 BT-1`。2.4G 接收器型号标识为 `320F:506B`。
+
+## 开始使用
+
+1. 下载仓库 ZIP 并完整解压到固定目录，或使用 Git 克隆。不要在 ZIP 预览中运行，也不要只复制启动文件。
+2. 双击根目录 **`Start-Monitor.vbs`**。入口会通过正常 Windows 桌面 Shell 发现可用 Python 并启动，不弹黑窗；避免从 MSIX 应用启动时继承 AppData 重定向。
+3. 主窗口确认输入来源；如尚未识别蓝牙，点击「选择 BT1…」。唯一匹配设备可自动绑定；多候选需选择，其他键盘输入不会入队。
+4. 将托盘图标从 Windows 的隐藏图标区域拖到常显区域，便于看到数字和双击标记。
+5. 右键托盘，勾选「开机自启动」。移动程序目录或更换 Python 后，取消再勾选，以更新快捷方式。
+
+也可在项目根目录运行：
+
+```powershell
+py -3 app.py --record
+```
+
+缺少 Python 时请安装 64 位 Python（包含 tkinter），再重新运行。启动失败会尽量给出错误提示，并将详情写入本地数据目录的 `startup-error.log`。
+
+## 托盘与卡顿标记
+
+| 操作／状态 | 行为 |
+|---|---|
+| 左键单击 | 不操作，避免双击时附带查询、改变故障现场 |
+| 左键双击 | 保存一次主观卡顿标记，不打开窗口 |
+| 青蓝色 ✓ | 标记已写入本地文件，约 2 秒后恢复电量 |
+| 橙色 ! | 标记保存失败；悬停查看原因，下一次成功标记可恢复 |
+| 长按约 1 秒后松开 | 开始／结束长断联标记，期间以紫色「断」提示；右键菜单也可开始／结束 |
+| 右键 | 显示窗口、刷新电量、标记结果、日志／数据目录、USB 报告计时、自启动、隐藏策略及退出 |
+| X／最小化 | 收起到托盘，监控继续 |
+| 右键「退出」 | 保存日志，停止观察和采集，移除托盘图标并退出 |
+
+长断联保存开始／结束时间、两次操作各自的按住时长、区间时长、连接状态、修饰键和关联自动事件编号。该区间只是用户手动观察范围，不是精确射频断开时间。程序退出时未结束的区间标为「观察结束，未确认恢复」；异常退出时开始记录仍保留，不能虚构恢复时间。
+
+每次双击形成一个独立标记编号；多次标记可能对应同一次故障，不能按点击次数计算断联次数。标记时间是点击时间，不是精确故障起点。不依赖系统通知、声音或弹窗反馈。没有有效电量时显示 `?`，不会将旧值显示成正常的新读数。
+
+## 登录自启动与窗口策略
+
+当前用户的启动文件夹中注册 `AkkoLinkMonitor.lnk`，目标为本项目的 **`bin/AkkoLinkMonitor.exe`**，参数为 `--startup`。启动器的文件说明和产品名均为 **AKKO Link Monitor**，避免任务管理器把启动项显示成 pythonw.exe。它是一个无控制台的小型启动入口，实际监控仍通过发现到的 Python 运行。首次注册时自动用系统 .NET Framework C# 编译器构建，源码为 `scripts/AkkoLinkMonitor.cs`，无需第三方打包工具。不使用注册表 Run，不安装系统服务，不保存管理员密码。
+
+| 启动时隐藏窗口 | 手动启动 | 登录 Windows 后自启动 |
+|---|---|---|
+| 不隐藏 | 显示窗口 | 显示窗口 |
+| 仅开机自启动时隐藏（默认） | 显示窗口 | 仅托盘 |
+| 每次启动时隐藏 | 仅托盘 | 仅托盘 |
+
+隐藏启动在第一次映射主窗口前决定，不是先弹出再隐藏。单实例运行：重复手动启动会显示现有窗口，重复自启动不弹出现有隐藏窗口。若托盘初始化失败，会显示错误和主窗口，避免隐藏进程无法操作。
+
+托盘勾选表示「已注册启动项」。任务管理器禁用时仍保留勾选，并显示「任务管理器已禁用」，请到任务管理器 → 启动应用中手动启用。系统批准状态未知时如实提示，不自动改写它。菜单每次打开重新读取状态。
+
+也可通过命令注册／取消：
+
+```powershell
+py -3 app.py --install-startup
+py -3 app.py --uninstall-startup
+```
+
+自启动是**登录后启动**，不是登录前的后台系统服务。卸载时先取消自启动、从托盘退出，再删除程序目录。本地数据可保留；删除数据前请自行备份。移动源码不会自动修复旧快捷方式。
+
+## 电量的实际含义
+
+**2.4G：** 使用经验证的固定私有电量命令。正常约 30 秒查询一次，超时后等待约 5 秒再试；收到 BT1 输入时暂停这项查询。可关闭主动查询做被动输入对照。百分比为设备估算，充电状态原值没有确认，不推断正在充电。
+
+**BT1：** 常驻程序约 30 秒只读 Windows 缓存，不周期性进行 GATT 查询，不主动维持蓝牙连接。缓存可能滞后，界面上的「距读取」表示距本程序读取缓存的时间，**不是键盘电量采样年龄**。断开时当前值留空，另存最后已知值。读取失败不当作断联。
+
+电量按来源分别显示和保存，不将接收器上次电量当作蓝牙电量。低电量百分比不代表键盘进入了某个已确认的低功耗状态；灯灭、休眠、断联也不能简单等同。
+
+## USB 报告计时与 UAC
+
+普通电量、Raw Input、卡键和蓝牙状态记录不需要管理员权限。可直接从托盘右键菜单启用／停止 USB 报告计时，也可用主窗口按钮；点击启用才启动需要 UAC 的独立辅助进程，采集 UCX 的成功 Interrupt-IN 完成时间、长度、错误和丢事件计数，不捕获 HID 数据载荷。
+
+它帮助区分「卡键时 USB 是否仍在传输」和「主机 USB 通道是否停顿」，不能提供射频 RSSI、无线丢包率或端到端输入延迟。USB 声明的 1ms／1000Hz 不等于实际无线发送频率。
+
+**当前限制：接收器必须直连根集线器。雷蛇底座、外置 USB 集线器等路径不支持这个计时后端。** 其他监控仍可使用。EP82 包含媒体键及私有查询回复，不能当纯键盘报告流。USB 计时按需开启，每次新建高权限辅助进程可能需要 UAC；登录启动不会自动开启它，不安装免 UAC 的计划任务或服务。
+
+## 数据、隐私与迁移
+
+默认本地数据目录：
+
+```text
+%LOCALAPPDATA%\AkkoLinkMonitor
+├─ settings.json                 阈值、查询与启动显示设置
+├─ device.json                   本机选定的蓝牙身份
+├─ manual-markers.jsonl          独立保存的手动卡顿标记
+├─ logs\日期时间\               会话日志
+├─ runtime\                     临时 USB 采集状态与心跳
+├─ migration-backup/            原日志的核验归档备份
+└─ log-migration.json            旧日志核验合并报告（有旧版时）
+```
+
+- 会话中的 `samples.csv`、`input-timing.csv` 保存统计；`battery.csv` 和 `bluetooth-battery.csv` 分别保存电量来源。
+- `events.csv` 保存设备变化、手动标记和错误；`automatic-events.csv`／`automatic-state.json` 保存自动异常的开始、进展、结束及中断。
+- 同一个事件编号的多行表示进展，不是多个故障；`duration_seconds` 为系统观察到的按住／事件时长。
+- 不保存完整输入内容或普通按键流水。异常键名、修饰键、设备身份和精确使用时间仍属于个人数据，不应直接公开日志。
+- 只监控选定 AKKO；不联网、不上传遥测。蓝牙状态是 Windows 的连接观察，不代表休眠状态被直接读取。
+- 从旧版迁移时复制已知设置，并将旧 `logs/` 会话合并到统一的新日志目录。自动导入只复制并逐文件比对 SHA-256，不删除源文件；首次整理时核验后将旧原件另行归档到 `migration-backup/`；不同内容的同名会话加 `-legacy-N` 后缀，不覆盖。CSV 内容和其中的历史路径不改写，合并报告记录会话映射。迁移失败保留原件并写 `log-migration-error.json`。`analysis/`、`research/` 和固件不移动、不删除。
+- 新数据与源码分离；更换用户名或目录不会要求改源码。更换电脑／键盘后重新选择 BT1、自启动重新注册。环境变量 `AKKO_MONITOR_DATA_DIR` 可用于隔离数据目录和测试实例。
+
+## 项目结构与验证
+
+```text
+app.py                 兼容启动入口
+bin/AkkoLinkMonitor.exe 本机生成的命名启动器（不提交 Git）
+Start-Monitor.vbs      无控制台的手动启动入口
+src/akko_monitor/      监控、托盘、自启动与设备识别
+scripts/              Python 发现、启动、测试与发布检查
+tests/               合成事件、状态机、原生 Windows 集成测试
+docs/                协议边界、第三方说明和验证说明
+```
+
+在项目根目录执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-tests.ps1
+```
+
+默认不要求插着 AKKO，两个实机测试默认跳过。需要本机设备检查时增加 `-Hardware`。测试用合成事件，不向 Windows 注入按键；启动项验证只操作隔离目录和测试注册表键，不修改真实自启动项或 SteamMonitorTray。
+
+详细说明见 [验证说明](docs/VERIFICATION.md)、[协议与数据边界](docs/PROTOCOL.md)、[第三方与参考](docs/THIRD_PARTY.md)。
+
+## 创建 GitHub 空仓库并首次推送
+
+在 **Jazzwind** 账号下创建空仓库 **akko-link-monitor**，不要让 GitHub 预先添加 README、LICENSE 或 `.gitignore`。本项目已提供这些文件。
+
+先确认本机 Git 的提交姓名与邮箱；它们会进入提交历史，并不会因为登录 Jazzwind 自动改变。需要隐藏个人邮箱时，使用 GitHub 设置页面提供的隐私提交邮箱，不要随意编造邮箱或令牌。
+
+以下代码用于**整理和验收完成后的首次推送**；如果项目不在默认位置，修改第一行。需要已安装 Git，并配置提交身份；推送时可能要求浏览器登录 GitHub，请选择 Jazzwind。
+
+```powershell
+Set-Location -LiteralPath "$env:USERPROFILE\Desktop\Coding\akko-link-monitor"
+$ErrorActionPreference = 'Stop'
+
+function Invoke-GitChecked {
+    & git @args
+    if ($LASTEXITCODE -ne 0) { throw 'Git 命令失败，已停止后续操作。' }
+}
+
+if (Test-Path -LiteralPath '.git') { throw '此命令只用于首次推送：当前目录已经存在 Git 仓库。' }
+if (-not (git config user.name) -or -not (git config user.email)) {
+    throw '请先配置 Git 提交姓名和邮箱，确认是否使用 GitHub 隐私邮箱。'
+}
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-release.ps1
+if ($LASTEXITCODE -ne 0) { throw '发布检查未通过，尚未初始化 Git。' }
+
+Invoke-GitChecked init -b main
+Invoke-GitChecked add .
+Invoke-GitChecked status --short
+Invoke-GitChecked commit -m 'Initial release'
+Invoke-GitChecked remote add origin https://github.com/Jazzwind/akko-link-monitor.git
+Invoke-GitChecked -c credential.username=Jazzwind push -u origin main
+```
+
+`.gitignore` 对根目录采用发布白名单，只允许入口、源码、测试、脚本、文档和许可证；旧日志、分析、固件等保持本地。发布检查不能代替人工检查新加入的文字或截图。以后更新请使用正常的 Git 提交／推送流程，不重复执行首次推送脚本。
+
+## 许可与参考
+
+MIT，见 [LICENSE](LICENSE)。
+
+参考 [2.4G-battery-viewer](https://github.com/yszyszysz233/2.4G-battery-viewer) 的数字托盘思路，以及 [SteamMonitorTray](https://github.com/Jazzwind/SteamMonitorTray) 的自启动和窗口策略。[AKKO 官方资料](https://en.akkogear.com/download/)用于型号与协议核对。

@@ -1,0 +1,20 @@
+/*
+!/.gitignore
+!/README.md
+!/LICENSE
+!/app.py
+!/Start-Monitor.vbs
+!/src/
+!/tests/
+!/docs/
+!/scripts/
+
+# Runtime data and local evidence are never release sources.
+**/__pycache__/
+**/verification/
+*.pyc
+*.pyo
+*.log
+*.tmp
+*.lnk
+*.jsonl
