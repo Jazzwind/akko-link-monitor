@@ -47,6 +47,9 @@ class MergeTests(unittest.TestCase):
             (old/'settings.json').write_text('{"hold_seconds": 4}')
             (old/'manual-markers.jsonl').write_text('{"marker_id":"test-one"}\n')
             with patch.object(paths,'DATA',data),patch.object(paths,'DEFAULT_DATA',data),patch.dict(os.environ,{'LOCALAPPDATA':str(local)}):
+                # This fixture deliberately tests a default-root import; the
+                # entire legacy tree is synthetic, even in an isolated runner.
+                os.environ.pop('AKKO_MONITOR_DATA_DIR',None)
                 paths.import_legacy_data();paths.import_legacy_data()
             self.assertEqual((data/'logs/session/sample.csv').read_text(),'original')
             self.assertEqual(json.loads((data/'settings.json').read_text())['hold_seconds'],4)

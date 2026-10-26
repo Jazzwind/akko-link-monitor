@@ -234,10 +234,10 @@ class Detector:
         self.end_keys(now,'input_capture_paused' if not enabled else 'input_capture_resumed_boundary')
         self.input_enabled = enabled
 
-    def set_probes_enabled(self, enabled, now):
+    def set_probes_enabled(self, enabled, now, reason='power_queries_disabled_state_unknown'):
         self.probes_enabled = enabled
         if not enabled and self.wireless:
-            self._end(self.wireless,now,'power_queries_disabled_state_unknown',False)
+            self._end(self.wireless,now,reason,False)
             self.wireless = None
 
     def capture_gap(self, now, dropped):

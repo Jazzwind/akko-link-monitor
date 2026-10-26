@@ -20,6 +20,8 @@ class FakeTelemetry:
     def start(self):pass
     def stop(self):pass
     def refresh(self):pass
+    def note_rf_input(self,observed_at):pass
+    def refresh_power_once(self):pass
     def set_battery_enabled(self,value):self.enabled=value
 
 class FakeBluetooth:
@@ -28,6 +30,82 @@ class FakeBluetooth:
     def stop(self):pass
 
 class AppDetectionTests(unittest.TestCase):
+    def test_manual_refresh_idle_display_and_bt_cache_routing(self):
+        from test_tray_startup import FakeTray
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(app,'BASE',Path(temp)),patch.object(app,'Receiver',FakeReceiver),patch.object(app,'Telemetry',FakeTelemetry),patch.object(app,'BluetoothMonitor',FakeBluetooth),patch.object(app,'inventory',lambda:[]):
+                root=tk.Tk();root.withdraw();monitor=app.App(root);tray=FakeTray();monitor.attach_tray(tray)
+                try:
+                    monitor.probes_enabled.set(False);monitor.toggle_probes()
+                    with patch.object(monitor.telemetry,'refresh_power_once') as query:
+                        monitor.tray_command(101);query.assert_called_once()
+                    self.assertFalse(monitor.rf_probes_active)
+                    self.assertIsNone(monitor.last_rf_activity)
+                    result={'manual_query':True,'percent':42,'queried_at':time.time(),'power_state_raw':1,'status':'device_reported'}
+                    monitor.telemetry.events.put(('battery',result,None));monitor.pump()
+                    self.assertEqual(monitor.battery_sample('')[:2],[42,'manual_receiver_read'])
+                    self.assertEqual(monitor.active_source,'')
+                    self.assertFalse(monitor.rf_probes_active)
+                    result['queried_at']-=31
+                    self.assertEqual(monitor.battery_sample('')[0],'')
+                    monitor.telemetry.events.put(('battery',{'manual_query':True,'error_kind':'TimeoutError'},'synthetic timeout'));monitor.pump()
+                    self.assertFalse(monitor.detector.snapshots(time.perf_counter()))
+                    self.assertEqual(monitor.battery_sample('')[1],'manual_query_failed')
+                    self.assertEqual(tray.states[-1][0],'!')
+                    self.assertIn('synthetic timeout',tray.states[-1][1])
+                    self.assertEqual(monitor.last_marker_text,'尚未手动标记')
+                    monitor.mark_feedback=(*monitor.mark_feedback[:3],time.perf_counter()-1)
+                    monitor.refresh_tray();monitor.refresh_tray()
+                    self.assertEqual(tray.states[-1][0],'42')
+                    self.assertIn('最后已知',tray.states[-1][1])
+                    self.assertIn('手动刷新失败',tray.states[-1][1])
+                    monitor.active_source='BT1'
+                    with patch.object(monitor.telemetry,'refresh_power_once') as query,patch.object(monitor.telemetry,'refresh') as cache:
+                        monitor.tray_command(101);query.assert_not_called();cache.assert_called_once()
+                finally:monitor.close()
+
+    def test_idle_pauses_queries_without_false_recovery_and_ignores_repeats(self):
+        from test_detection import RF,BT
+        from test_tray_startup import FakeTray
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(app,'BASE',Path(temp)),patch.object(app,'Receiver',FakeReceiver),patch.object(app,'Telemetry',FakeTelemetry),patch.object(app,'BluetoothMonitor',FakeBluetooth),patch.object(app,'inventory',lambda:[]):
+                root=tk.Tk();root.withdraw();monitor=app.App(root);tray=FakeTray();monitor.attach_tray(tray)
+                try:
+                    self.assertEqual(tray.states[-1][0],'?')
+                    now=time.perf_counter()
+                    monitor.receiver.events.put(('key',now,RF,30,0,65));monitor.pump()
+                    self.assertTrue(monitor.rf_probes_active)
+                    monitor.detector.set_usb(True,now)
+                    monitor.detector.probe(False,True,now+1,now)
+                    monitor.last_rf_activity=now-app.RF_IDLE_SECONDS
+                    monitor.update_probe_policy(now)
+                    self.assertFalse(monitor.telemetry.enabled)
+                    self.assertIsNone(monitor.detector.wireless)
+                    episodes=monitor.detector.snapshots(now)
+                    self.assertTrue(any(e['reason']=='power_queries_paused_idle_state_unknown' and e['phase']!='resolved' for e in episodes))
+                    monitor.battery={'percent':50,'status':'device_reported','queried_at':time.time()}
+                    self.assertEqual(monitor.battery_sample('2.4G')[:3],['','queries_paused_idle',50])
+                    monitor.refresh_tray()
+                    self.assertEqual(tray.states[-1][0],'50')
+                    self.assertIn('最后已知',tray.states[-1][1])
+                    self.assertIn('闲置暂停',tray.states[-1][1])
+                    self.assertIn('距读取',tray.states[-1][1])
+                    self.assertEqual(tray.states[-1][3],0x9ba5b3)
+                    monitor.telemetry.events.put(('battery',{'percent':99},None))
+                    monitor.receiver.events.put(('key',time.perf_counter(),RF,30,0,65));monitor.pump()
+                    self.assertFalse(monitor.rf_probes_active)
+                    self.assertEqual(monitor.battery['percent'],50)
+                    monitor.receiver.events.put(('key',time.perf_counter(),RF,30,1,65));monitor.pump()
+                    self.assertTrue(monitor.telemetry.enabled)
+                    monitor.probes_enabled.set(False);monitor.toggle_probes()
+                    monitor.receiver.events.put(('key',time.perf_counter(),RF,30,0,65));monitor.pump()
+                    self.assertFalse(monitor.telemetry.enabled)
+                    monitor.probes_enabled.set(True);monitor.toggle_probes()
+                    self.assertTrue(monitor.telemetry.enabled)
+                    monitor.receiver.events.put(('key',time.perf_counter(),BT,31,0,83));monitor.pump()
+                    self.assertFalse(monitor.telemetry.enabled)
+                finally:monitor.close()
+
     def test_dual_mode_csv_modifier_context_and_probe_gating(self):
         from test_detection import RF,BT
         verify=Path(__file__).resolve().parent/'verification';verify.mkdir(exist_ok=True)
