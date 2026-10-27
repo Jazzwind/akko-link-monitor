@@ -12,6 +12,7 @@ import subprocess
 import uuid
 from datetime import datetime
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import ttk, messagebox
 from .devices import inventory
 from .raw_input import Receiver
@@ -106,13 +107,18 @@ class App:
 
     def build(self):
         style = ttk.Style(); style.theme_use('clam')
+        self.table_font=tkfont.Font(root=self.root,family='Microsoft YaHei UI',size=10)
+        self.table_heading_font=tkfont.Font(root=self.root,family='Microsoft YaHei UI',size=10,weight='bold')
+        style.configure('Treeview',font=self.table_font,
+                        rowheight=max(26,self.table_font.metrics('linespace')+10))
+        style.configure('Treeview.Heading',font=self.table_heading_font,padding=(6,6))
         style.configure('TFrame', background='#f4f6fa')
         style.configure('TLabel', background='#f4f6fa', font=('Microsoft YaHei UI', 10))
         style.configure('Title.TLabel', font=('Microsoft YaHei UI', 21, 'bold'))
         style.configure('Metric.TLabel', font=('Microsoft YaHei UI', 14, 'bold'), foreground='#185c87')
         frame = ttk.Frame(self.root, padding=20); frame.pack(fill='both', expand=True)
-        ttk.Label(frame, text='AKKO 3098N  /  BT1 + 2.4G 连接记录', style='Title.TLabel').pack(anchor='w')
-        ttk.Label(frame, text='已验证 AKKO BT-1 与 320F:506B 接收器 · 仅异常保存键名及修饰键，不保存完整输入内容').pack(anchor='w', pady=(5, 12))
+        ttk.Label(frame, text='AKKO 3098N  /  BT1 + 2.4G + 有线 USB', style='Title.TLabel').pack(anchor='w')
+        ttk.Label(frame, text='已验证 BT1、320F:506B 接收器与 320F:506A 有线接口 · 仅异常保存键名，不保存完整输入内容').pack(anchor='w', pady=(5, 12))
         self.status = tk.StringVar(value='正在查询接收器…')
         ttk.Label(frame, textvariable=self.status, style='Metric.TLabel').pack(anchor='w')
         self.bt_label=tk.StringVar(value='BT1：正在读取 Windows 蓝牙连接状态…')
@@ -152,26 +158,22 @@ class App:
         modifier.pack(side='left');modifier.bind('<Return>',self.update_modifier_threshold);modifier.bind('<FocusOut>',self.update_modifier_threshold)
         self.probes_enabled=tk.BooleanVar(value=self.initial_probes_enabled)
         ttk.Checkbutton(auto_options,text='启用 2.4G 电量查询 / 疑似失联判定',variable=self.probes_enabled,command=self.toggle_probes).pack(side='left',padx=18)
-        self.auto_tree=ttk.Treeview(autotab,columns=('kind','key','start','duration','state'),show='headings',height=4)
+        self.auto_tree=self.make_table(autotab,('kind','key','start','duration','state'),4)
         for name,label,width in [('kind','自动事件',250),('key','异常键名',135),('start','观察开始 / 首次按下',190),('duration','已观察时长',110),('state','状态',260)]:
             self.auto_tree.heading(name,text=label);self.auto_tree.column(name,width=width)
-        self.auto_tree.pack(fill='x')
         ttk.Label(autotab,text='默认：重复 ≥10 次且按住 ≥2 秒；Alt / Ctrl / Shift / Win 未松开 ≥5 秒即记录（无需重复，主动长按也会触发）。蓝牙状态约每秒观察，正常停顿不判掉线。',wraplength=1050).pack(anchor='w',pady=4)
-        self.tree = ttk.Treeview(keytab, columns=('iface','down','up','repeat','held','orphan','idle'), show='headings', height=5)
+        self.tree = self.make_table(keytab,('iface','down','up','repeat','held','orphan','idle'),5)
         for name, label, width in [('iface','键盘接口',230),('down','按下次数',100),('up','松开次数',100),('repeat','自动重复',100),('held','当前按住',100),('orphan','无配对松开',110),('idle','距上次输入',130)]:
             self.tree.heading(name, text=label); self.tree.column(name, width=width)
-        self.tree.pack(fill='x')
         ttk.Label(keytab, text='两个接口分别统计，不能直接相加为物理按键数；自动重复、长按、无配对松开不能单独证明掉线。').pack(anchor='w', pady=5)
         ttk.Label(timingtab,text='真实 USB 输入报告：UCX 成功的 Interrupt-IN 完成时间；EP82 为键盘 / 媒体键 / 私有回复等共享端点。').pack(anchor='w')
-        self.report_tree=ttk.Treeview(timingtab,columns=('ep','n','last','p50','p95','errors'),show='headings',height=2)
+        self.report_tree=self.make_table(timingtab,('ep','n','last','p50','p95','errors'),2)
         for name,label in [('ep','USB 端点'),('n','成功报告数'),('last','上次间隔 ms'),('p50','P50 ms'),('p95','P95 ms'),('errors','传输错误数')]:
             self.report_tree.heading(name,text=label);self.report_tree.column(name,width=150)
-        self.report_tree.pack(fill='x',pady=4)
         ttk.Label(timingtab,text='Raw Input 键盘事件：应用收到的按下 / 松开 / 重复事件，和上面的 USB 报告分别统计。').pack(anchor='w')
-        self.timing_tree=ttk.Treeview(timingtab,columns=('iface','n','last','p50','p95'),show='headings',height=2)
+        self.timing_tree=self.make_table(timingtab,('iface','n','last','p50','p95'),2)
         for name,label in [('iface','键盘接口'),('n','事件数'),('last','上次间隔 ms'),('p50','P50 ms'),('p95','P95 ms')]:
             self.timing_tree.heading(name,text=label);self.timing_tree.column(name,width=170)
-        self.timing_tree.pack(fill='x',pady=4)
         ttk.Label(frame,text='间隔包含正常停顿及系统调度，不能换算成真实无线丢包率；USB 名义 1000 Hz 不代表每秒有 1000 个有效报告。').pack(anchor='w',pady=3)
         self.canvas = tk.Canvas(frame, height=75, background='#102238', highlightthickness=0)
         self.canvas.pack(fill='x', pady=(6, 8))
@@ -184,6 +186,19 @@ class App:
         ttk.Label(frame, textvariable=self.log_label, wraplength=1000).pack(anchor='w', pady=5)
         self.events = tk.Text(frame, height=8, background='#ffffff', foreground='#23364c', font=('Microsoft YaHei UI',10), state='disabled')
         self.events.pack(fill='both', expand=True, pady=(5, 0))
+
+    @staticmethod
+    def make_table(parent,columns,height):
+        frame=ttk.Frame(parent);frame.pack(fill='x',pady=4)
+        frame.columnconfigure(0,weight=1);frame.rowconfigure(0,weight=1)
+        tree=ttk.Treeview(frame,columns=columns,show='headings',height=height)
+        vertical=ttk.Scrollbar(frame,orient='vertical',command=tree.yview)
+        horizontal=ttk.Scrollbar(frame,orient='horizontal',command=tree.xview)
+        tree.configure(yscrollcommand=vertical.set,xscrollcommand=horizontal.set)
+        tree.grid(row=0,column=0,sticky='nsew')
+        vertical.grid(row=0,column=1,sticky='ns')
+        horizontal.grid(row=1,column=0,sticky='ew')
+        return tree
 
     def note(self, text, kind='info'):
         if kind=='incident':
@@ -238,7 +253,7 @@ class App:
         now=time.perf_counter() if monotonic is None else monotonic
         context={'trigger':source,'last_input_source':self.active_source,
           'held_modifiers':{mode:sorted({state.name for (path,*_),state in self.detector.keys.items()
-                            if source_label(path)==mode and state.name in MODIFIERS}) for mode in ('BT1','2.4G')},
+                            if source_label(path)==mode and state.name in MODIFIERS}) for mode in ('BT1','2.4G','有线 USB')},
           'usb_present':self.present,'bluetooth_connected':self.current_bt_status(),
           'session_id':self.folder.name if self.writers and self.folder else None,
           'continuous_log_enabled':bool(self.writers),'clicked_monotonic':now}
@@ -280,12 +295,13 @@ class App:
         text=str(value) if value!='' else '?'
         fg=0x9ba5b3 if value=='' or stale else 0xf07369 if int(value)<30 else 0xf1cb57 if int(value)<60 else 0x7ad6a0
         label='Windows 缓存；设备测量时间未知' if source=='BT1' else '设备上报；估算精度未校准'
+        if source=='有线 USB':label='有线输入监控；有线电量协议尚未验证'
         if status=='queries_paused_idle':label='闲置暂停主动查询；旧电量仅供参考'
         if status=='manual_receiver_read':label='手动读取接收器；无线侧缓存新鲜度未知'
         if status=='manual_query_failed':label='手动刷新失败：'+str(self.battery_error)+'；请确认 2.4G 模式并按键唤醒后重试'
         known='（最后已知，当前未更新）' if stale else ''
         tip=f'AKKO 3098N · {source or "来源待确认"}：{text}%{known}\n{label}；{status}'
-        if sample[3]!='':tip+=f'\n距读取 {int(sample[3])} 秒'
+        if sample[3]!='':tip+=f'\n距读取 {self.format_elapsed(sample[3])}'
         background=0x273142
         if self.manual_outage:
             text='断';background=0x8b3ac6;fg=0xffffff
@@ -338,7 +354,10 @@ class App:
         elif command==130:self.close()
 
     def refresh_battery_once(self):
-        if self.active_source=='BT1':
+        if self.active_source=='有线 USB':
+            self.battery_label.set('有线 USB：正在记录输入；有线电量协议尚未验证，不查询 2.4G 接收器。')
+            self.note('有线模式手动刷新：不发送未验证的有线电量命令，也不读取接收器电量冒充有线读数。','manual_battery_query')
+        elif self.active_source=='BT1':
             self.telemetry.refresh()
             self.note('手动刷新 BT1：只读取 Windows 电量缓存，不主动查询接收器。','manual_battery_query')
         else:
@@ -361,7 +380,7 @@ class App:
                  'bluetooth_connected':self.current_bt_status(),'usb_present':self.present,
                  'session_id':self.folder.name if self.writers and self.folder else None,
                  'held_modifiers':{mode:sorted({state.name for (path,*_),state in self.detector.keys.items()
-                           if source_label(path)==mode and state.name in MODIFIERS}) for mode in ('BT1','2.4G')},
+                           if source_label(path)==mode and state.name in MODIFIERS}) for mode in ('BT1','2.4G','有线 USB')},
                  'active_automatic_event_ids':[r['event_id'] for r in self.detector.snapshots(now,True)],
                  'duration_basis':'user_marked_interval_not_verified_physical_disconnect',
                  'reason':'monitor_exit_end_not_confirmed' if closing else 'user_marked_end' if current else 'user_marked_start'}
@@ -456,14 +475,14 @@ class App:
                 completed=data.get('probe_completed_monotonic',time.perf_counter()) if data else time.perf_counter()
                 if not manual:self.detector.probe(not error, bool(error and data and data.get('error_kind')=='TimeoutError'),completed,data.get('probe_started_monotonic') if data else None)
                 if error:
-                    if self.active_source!='BT1':self.battery_label.set('电量：本次查询失败'+(f"；上次设备上报 {self.battery['percent']}%" if self.battery else '')+'。'+error)
+                    if self.active_source not in ('BT1','有线 USB'):self.battery_label.set('电量：本次查询失败'+(f"；上次设备上报 {self.battery['percent']}%" if self.battery else '')+'。'+error)
                     if manual:
                         self.mark_feedback=('!',0xd97813,'电量刷新失败：'+error+'\n请确认 2.4G 模式，按键唤醒后再刷新。',time.perf_counter()+5)
                         self.refresh_tray()
                     if self.writers:self.note('电量查询失败：'+error,'battery_error')
                 else:
                     self.battery=data
-                    if self.active_source!='BT1':self.battery_label.set(f"{'手动读取接收器' if manual else '设备上报'}电量：{data['percent']}%  ·  状态原值 {data['power_state_raw']}（含义未验证） · 无线侧缓存 / 估算精度尚未验证")
+                    if self.active_source not in ('BT1','有线 USB'):self.battery_label.set(f"{'手动读取接收器' if manual else '设备上报'}电量：{data['percent']}%  ·  状态原值 {data['power_state_raw']}（含义未验证） · 无线侧缓存 / 估算精度尚未验证")
                     if self.writers:
                         self.extra_writers['battery'].writerow([datetime.fromtimestamp(data['queried_at']).astimezone().isoformat(),data['percent'],data['power_state_raw'],data['payload_hex'],data['status'],data['charging'],data['wireless_freshness']])
                         self.extra_files[1].flush()
@@ -496,10 +515,11 @@ class App:
         return source_label(path)+' / '+part
 
     def select_source(self,source,now):
-        if source not in ('BT1','2.4G') or source==self.active_source:return
+        if source not in ('BT1','2.4G','有线 USB') or source==self.active_source:return
         self.active_source=source
         self.update_probe_policy(time.perf_counter())
         if source=='BT1':self.render_bt_battery()
+        elif source=='有线 USB':self.battery_label.set('有线 USB：正在记录输入；有线电量协议尚未验证，不查询 2.4G 接收器。')
         else:self.battery_label.set('2.4G 电量：等待本模式查询结果…')
         self.note('最近确认输入来源：'+source+'；切换不代表另一连接已恢复，未松开状态继续保留。','input_source')
 
@@ -540,6 +560,7 @@ class App:
         active=self.detector.snapshots(now,active_only=True)
         stuck=[r for r in active if r['category']=='suspected_stuck_key']
         if self.active_source=='BT1':link='正在观察 BT1；2.4G 查询暂停'
+        elif self.active_source=='有线 USB':link='正在观察有线 USB；2.4G 查询暂停'
         elif self.detector.usb_present is False:link='USB 接收器未检测到'
         elif not self.probes_enabled.get():link='电量查询已关闭，无线状态未判定'
         elif self.detector.wireless:link='疑似无线失联 / 响应超时，等待查询回复'
@@ -695,6 +716,14 @@ class App:
     @staticmethod
     def fmt(value):return f'{value:.3f}' if value is not None else '—'
 
+    @staticmethod
+    def format_elapsed(seconds):
+        minutes,seconds=divmod(max(0,int(seconds)),60)
+        hours,minutes=divmod(minutes,60)
+        if hours:return f'{hours}小时{minutes:02d}分钟{seconds:02d}秒'
+        if minutes:return f'{minutes}分钟{seconds:02d}秒'
+        return f'{seconds}秒'
+
     def battery_status(self):
         if self.active_source=='BT1':return 'not_queried_in_bluetooth_mode'
         if self.battery_error and self.last_power_query_manual:return 'manual_query_failed'
@@ -719,6 +748,7 @@ class App:
             if manual_recent:status='manual_query_failed' if self.battery_error else 'manual_receiver_read'
             elif self.active_source!='2.4G' and status!='manual_query_failed':status='not_queried_in_current_mode'
             source='2.4G'
+        elif source=='有线 USB':return ['','wired_battery_protocol_unverified','','','有线 USB']
         else:return ['','unavailable','','','']
         return [data['percent'] if valid else '',status,data['percent'] if data else '',
                 round(time.time()-data['queried_at'],2) if data else '',source]
@@ -726,7 +756,7 @@ class App:
     def render_bt_battery(self):
         if self.bt_battery:
             percent=self.bt_battery['percent'];age=max(0,time.time()-self.bt_battery['queried_at'])
-            self.battery_label.set(f'BT1 电量：Windows 缓存 {percent}% · {age:.0f} 秒前读取缓存，设备测量时间未知'+
+            self.battery_label.set(f'BT1 电量：Windows 缓存 {percent}% · {self.format_elapsed(age)}前读取缓存，设备测量时间未知'+
                 (' · 本次缓存读取失败' if self.bt_battery_error else '')+
                 (' · 蓝牙当前未确认连接' if self.current_bt_status() is not True else ''))
         else:self.battery_label.set('BT1 电量：等待 Windows 电量缓存'+('；'+self.bt_battery_error if self.bt_battery_error else '…'))
@@ -747,6 +777,7 @@ class App:
         enabled=self.rf_probes_active
         self.save_settings()
         if self.active_source=='BT1':self.render_bt_battery()
+        elif self.active_source=='有线 USB':self.battery_label.set('有线 USB：正在记录输入；有线电量协议尚未验证，不查询接收器。')
         elif not enabled:self.battery_label.set('2.4G 电量主动查询已关闭或闲置暂停；保留被动输入 / USB 计时。')
         self.note('电量主动查询开关'+('启用（仅近期有 2.4G 输入时查询）' if self.probes_enabled.get() else '关闭；未结束的疑似失联记录为观察结束，不算恢复'),'detection_config')
 

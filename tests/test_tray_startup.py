@@ -49,7 +49,7 @@ class TrayTests(unittest.TestCase):
                     monitor.pump_tray()
                     rows=[json.loads(s) for s in (Path(temp)/'manual-markers.jsonl').read_text(encoding='utf8').splitlines()]
                     self.assertEqual(len(rows),2);self.assertNotEqual(rows[0]['marker_id'],rows[1]['marker_id'])
-                    self.assertEqual(rows[0]['held_modifiers'],{'BT1':['Left Alt'],'2.4G':[]})
+                    self.assertEqual(rows[0]['held_modifiers'],{'BT1':['Left Alt'],'2.4G':[],'有线 USB':[]})
                     self.assertFalse(rows[0]['continuous_log_enabled']);self.assertEqual(tray.states[-1][0],'✓')
                     monitor.mark_feedback=(*monitor.mark_feedback[:3],time.perf_counter()-1)
                     monitor.refresh_tray();self.assertEqual(tray.states[-1][0],'15')

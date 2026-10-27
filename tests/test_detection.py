@@ -133,10 +133,10 @@ class DetectionTests(unittest.TestCase):
 
     def test_autorepeats_and_input_activity_do_not_claim_radio_recovery(self):
         self.d.set_usb(True,0)
-        self.press(0)
+        self.press(0,path=RF)
         self.d.probe(False,True,1)
-        self.assertFalse(self.press(1.1))
-        self.assertTrue(self.press(1.2,flags=1))
+        self.assertFalse(self.press(1.1,path=RF))
+        self.assertTrue(self.press(1.2,flags=1,path=RF))
         self.assertIsNotNone(self.d.wireless)
         self.assertEqual(self.events[-1]['phase'],'input_response_observed')
 

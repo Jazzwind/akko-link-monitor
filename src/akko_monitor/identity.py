@@ -69,6 +69,7 @@ def initialize():
 def source_for(path):
     path=path.lower()
     if 'vid_320f&pid_506b' in path:return '2.4G'
+    if 'vid_320f&pid_506a' in path:return '有线 USB'
     if (BT_ADDRESS and '00001812-0000-1000-8000-00805f9b34fb' in path
             and '_'+BT_ADDRESS.lower()+'&col' in path):return 'BT1'
     return ''

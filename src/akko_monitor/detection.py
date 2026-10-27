@@ -167,7 +167,7 @@ class Detector:
             edge = True
         # Repeats alone never prove wireless recovery. A real state edge is only
         # supporting evidence; wait for a successful query to close the RF episode.
-        if edge and source_label(path) != 'BT1' and self.wireless and 'input_activity_at' not in self.wireless.evidence:
+        if edge and source_label(path) == '2.4G' and self.wireless and 'input_activity_at' not in self.wireless.evidence:
             self.wireless.evidence['input_activity_at'] = self.stamp(now)
             self.emit(self.snapshot(self.wireless,now,'input_response_observed'))
             return True
@@ -189,7 +189,7 @@ class Detector:
                     'first_repeat_at':self.stamp(state.first_repeat),
                     'duration_basis':'first_keydown_to_observed_release_or_observation_end',
                     'intentional_hold_possible':True,
-                    'wireless_episode_at_detection':self.wireless.event_id if self.wireless and source_label(path) != 'BT1' else ''}),now)
+                    'wireless_episode_at_detection':self.wireless.event_id if self.wireless and source_label(path) == '2.4G' else ''}),now)
         elif state.episode:
             state.episode.repeats = state.repeats
             state.episode.evidence['last_repeat_at'] = self.stamp(state.last_repeat)
