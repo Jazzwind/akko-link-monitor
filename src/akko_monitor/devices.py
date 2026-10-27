@@ -39,7 +39,12 @@ hid.HidD_GetPreparsedData.argtypes = [W.HANDLE, C.POINTER(C.c_void_p)]
 hid.HidD_FreePreparsedData.argtypes = [C.c_void_p]
 hid.HidP_GetCaps.argtypes = [C.c_void_p, C.POINTER(Caps)]
 
-def inventory(vid_pid=None):
+def inventory(vid_pid=None, *, descriptors=False, strings=False):
+    """Default: OS interface metadata only, without opening HID handles.
+
+    Capabilities and product strings need explicit opt-in. String requests may
+    reach the USB control endpoint, so they are not passive monitoring.
+    """
     guid = GUID()
     hid.HidD_GetHidGuid(C.byref(guid))
     info = setup.SetupDiGetClassDevsW(C.byref(guid), None, None, 0x12)
@@ -71,14 +76,18 @@ def inventory(vid_pid=None):
             if vid_pid and row['vid_pid'] != vid_pid:
                 continue
             row['transport'] = 'Bluetooth' if 'bth' in path.lower() or '00001812' in path.lower() else 'USB/HID'
+            if not descriptors and not strings:
+                result.append(row)
+                continue
             handle = kernel.CreateFileW(path, 0, 3, None, 3, 0, None)
             if handle != C.c_void_p(-1).value:
                 try:
                     for name, fn in [('product', hid.HidD_GetProductString), ('manufacturer', hid.HidD_GetManufacturerString)]:
+                        if not strings:continue
                         s = C.create_unicode_buffer(256)
                         if fn(handle, s, C.sizeof(s)): row[name] = s.value
                     pp = C.c_void_p()
-                    if hid.HidD_GetPreparsedData(handle, C.byref(pp)):
+                    if descriptors and hid.HidD_GetPreparsedData(handle, C.byref(pp)):
                         try:
                             caps = Caps()
                             if hid.HidP_GetCaps(pp, C.byref(caps)) >= 0:

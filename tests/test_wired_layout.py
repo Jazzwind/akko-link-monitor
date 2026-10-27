@@ -50,6 +50,8 @@ class WiredTests(unittest.TestCase):
                     monitor.pump()
                     self.assertEqual(monitor.active_source,'有线 USB')
                     self.assertFalse(monitor.telemetry.enabled)
+                    with patch.object(monitor,'scan') as scan:
+                        monitor.sample();monitor.sample();scan.assert_not_called()
                     self.assertEqual(monitor.battery_sample('有线 USB')[1],'wired_battery_protocol_unverified')
                     with patch.object(monitor.telemetry,'refresh_power_once') as query:
                         monitor.refresh_battery_once();query.assert_not_called()

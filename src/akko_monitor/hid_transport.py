@@ -48,7 +48,7 @@ class Pending:
         if self.ov.event: kernel.CloseHandle(self.ov.event); self.ov.event=None
 
 def vendor_path():
-    rows=inventory('320F:506B')
+    rows=inventory('320F:506B',descriptors=True)
     matches=[r for r in rows if r.get('usage_page')==0xFF1C and r.get('usage')==0x92 and r.get('input_bytes')==64 and r.get('output_bytes')==64]
     if len(matches)!=1:
         raise RuntimeError('未找到唯一的 AKKO FF1C:0092 私有接口（可能受访问权限限制）')

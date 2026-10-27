@@ -22,6 +22,7 @@ class FakeTelemetry:
     def refresh(self):pass
     def note_rf_input(self,observed_at):pass
     def refresh_power_once(self):pass
+    def refresh_usb_once(self):pass
     def set_battery_enabled(self,value):self.enabled=value
 
 class FakeBluetooth:

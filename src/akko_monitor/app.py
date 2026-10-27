@@ -39,6 +39,7 @@ class App:
         self.metrics = {}
         self.receiver = Receiver()
         self.started = time.perf_counter()
+        self.next_inventory_scan=self.started+60
         self.history = []
         self.present = None
         self.removals = self.arrivals = 0
@@ -96,7 +97,7 @@ class App:
             messagebox.showerror('输入监控启动失败', str(exc)); self.closing=True;root.destroy(); return
         self.telemetry.start()
         self.bluetooth.start()
-        self.note('监控 v0.7：长按切换长断联标记；BT1 / 2.4G 电量与输入分别记录。')
+        self.note('监控 v0.7：默认只读 Windows 接口清单，不周期读取 HID 字符串或 USB 描述符；支持 BT1 / 2.4G / 有线输入。')
         self.scan()
         root.protocol('WM_DELETE_WINDOW', self.hide_window)
         root.bind('<Unmap>',self.on_unmap)
@@ -129,7 +130,7 @@ class App:
         ttk.Label(frame,textvariable=self.auto_label,foreground='#8a3900').pack(anchor='w',pady=2)
         self.battery_label=tk.StringVar(value='电量：正在读取设备上报值…（充电状态及无线侧新鲜度待验证）')
         ttk.Label(frame,textvariable=self.battery_label,foreground='#8a5900').pack(anchor='w')
-        self.usb_label=tk.StringVar(value='USB：正在读取端点描述符…')
+        self.usb_label=tk.StringVar(value='USB 声明轮询：未主动读取；可按需读取 USB 参数，日常仅被动记录输入。')
         ttk.Label(frame,textvariable=self.usb_label).pack(anchor='w',pady=3)
         actions = ttk.Frame(frame); actions.pack(fill='x', pady=12)
         self.log_button = ttk.Button(actions, text='开始保存日志', command=self.toggle_log); self.log_button.pack(side='left')
@@ -138,7 +139,8 @@ class App:
         ttk.Button(actions, text='打开日志目录', command=self.open_logs).pack(side='left', padx=8)
         ttk.Button(actions, text='刷新设备', command=self.scan).pack(side='left')
         ttk.Button(actions,text='选择 BT1…',command=self.choose_bluetooth).pack(side='left',padx=4)
-        ttk.Button(actions,text='刷新电量 / USB',command=self.telemetry.refresh).pack(side='left',padx=8)
+        ttk.Button(actions,text='刷新电量',command=self.refresh_battery_once).pack(side='left',padx=8)
+        ttk.Button(actions,text='读取 USB 参数（按需）',command=self.telemetry.refresh_usb_once).pack(side='left')
         report_actions=ttk.Frame(frame);report_actions.pack(fill='x',pady=(0,8))
         self.report_button=ttk.Button(report_actions,text='启用 USB 报告计时（需 UAC）',command=self.start_reports)
         self.report_button.pack(side='left')
@@ -615,7 +617,9 @@ class App:
         self.last_sample = now
         self.history.append(total); self.history = self.history[-120:]
         self.draw_chart()
-        self.scan()
+        if now>=self.next_inventory_scan:
+            self.next_inventory_scan=now+60
+            self.scan()
         self.root.after(1000, self.sample)
 
     def draw_chart(self):
@@ -839,6 +843,7 @@ class App:
                            'modifier_seconds':self.detector.modifier_seconds,
                            'power_queries_enabled':self.probes_enabled.get(),'input_capture_enabled':self.capture},
                'power_queries_active':self.rf_probes_active,'power_query_idle_seconds':RF_IDLE_SECONDS,
+               'device_access_policy':'os_inventory_only_usb_descriptors_on_demand',
                'last_observed_input_source':self.active_source,'bluetooth_connected':self.current_bt_status(),
                'bluetooth_battery':self.bt_battery,'bluetooth_battery_error':self.bt_battery_error,
                'manual_prolonged_disconnect':dict(self.manual_outage,duration_seconds=round(max(0,now-self.manual_outage['started_monotonic']),3)) if self.manual_outage else None,
