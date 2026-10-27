@@ -86,7 +86,7 @@ class Tray:
         self.events=events;self.commands=queue.Queue();self.hwnd=None;self.icon=None
         self.menu=[];self.ready=threading.Event();self.error=None;self.last=None;self.stopped=False
         self.window_class=window_class
-        self.gestures=Gestures(self.events.put);self.mouse_was_down=False
+        self.gestures=Gestures(self.events.put);self.mouse_was_down=False;self.press_origin=None
         self.guid=GUID.from_buffer_copy(uuid.uuid5(uuid.NAMESPACE_URL,'https://github.com/Jazzwind/akko-link-monitor/'+window_class).bytes_le)
         self.thread=threading.Thread(target=self.run,name='AkkoTray',daemon=True)
     def start(self):
@@ -108,7 +108,10 @@ class Tray:
         menus=[]
         def build(rows):
             menu=u.CreatePopupMenu();menus.append(menu)
-            for identity,label,checked,enabled,children in rows:
+            for row in rows:
+                if row is None:
+                    u.AppendMenuW(menu,0x800,0,None);continue
+                identity,label,checked,enabled,children=row
                 flags=(8 if checked else 0)|(3 if not enabled else 0)
                 if children:u.AppendMenuW(menu,flags|0x10,build(children),label)
                 else:u.AppendMenuW(menu,flags,identity,label)
@@ -126,9 +129,16 @@ class Tray:
         identifier=IconIdentifier(C.sizeof(IconIdentifier),self.hwnd,1,self.guid);rect=W.RECT()
         located=s.Shell_NotifyIconGetRect(C.byref(identifier),C.byref(rect))==0
         inside=located and rect.left<=point.x<rect.right and rect.top<=point.y<rect.bottom
-        if down and not self.mouse_was_down and inside:self.gestures.down(time.time(),time.perf_counter())
-        elif not down and self.mouse_was_down:self.gestures.up(time.time(),time.perf_counter())
-        elif down and located and not inside:self.gestures.cancel()
+        if down and not self.mouse_was_down and inside:
+            self.press_origin=(point.x,point.y)
+            self.gestures.down(time.time(),time.perf_counter())
+        elif not down and self.mouse_was_down:
+            self.gestures.up(time.time(),time.perf_counter());self.press_origin=None
+        elif down and self.press_origin:
+            # Shell may relocate the icon rectangle after feedback/overflow
+            # updates. Cancel an actual drag, not that layout change.
+            if max(abs(point.x-self.press_origin[0]),abs(point.y-self.press_origin[1]))>8:
+                self.gestures.cancel();self.press_origin=None
         if down:self.gestures.tick(time.perf_counter())
         self.mouse_was_down=down
     def run(self):
@@ -141,9 +151,10 @@ class Tray:
                     code=lp&0xffff
                     action=decode_action(lp)
                     if code in (0x201,0x203):
+                        point=W.POINT();u.GetCursorPos(C.byref(point));self.press_origin=(point.x,point.y)
                         self.gestures.down(time.time(),time.perf_counter(),code==0x203);self.mouse_was_down=True
                     elif code==0x202:
-                        self.gestures.up(time.time(),time.perf_counter());self.mouse_was_down=False
+                        self.gestures.up(time.time(),time.perf_counter());self.mouse_was_down=False;self.press_origin=None
                     elif action=='menu':
                         ready=threading.Event();self.events.put(('tray_menu_refresh',ready))
                         ready.wait(1);self.popup()

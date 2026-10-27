@@ -39,7 +39,7 @@ class WiredTests(unittest.TestCase):
         for index in range(1,61):detector.key(41+index*.05,WIRED,52,0,190)
         self.assertTrue(any(e['key_name']=='Period key' and e['transport']=='有线 USB' for e in events))
 
-    def test_wired_ui_log_and_marker_without_receiver_battery_queries(self):
+    def test_wired_ui_log_marker_and_explicit_manual_preview(self):
         with tempfile.TemporaryDirectory() as temp:
             with patch.object(app,'BASE',Path(temp)),patch.object(app,'Receiver',FakeReceiver),patch.object(app,'Telemetry',FakeTelemetry),patch.object(app,'BluetoothMonitor',FakeBluetooth),patch.object(app,'inventory',lambda:[]):
                 root=tk.Tk();root.withdraw();monitor=app.App(root)
@@ -54,7 +54,8 @@ class WiredTests(unittest.TestCase):
                         monitor.sample();monitor.sample();scan.assert_not_called()
                     self.assertEqual(monitor.battery_sample('有线 USB')[1],'wired_battery_protocol_unverified')
                     with patch.object(monitor.telemetry,'refresh_power_once') as query:
-                        monitor.refresh_battery_once();query.assert_not_called()
+                        monitor.refresh_battery_once();query.assert_called_once()
+                    self.assertEqual(monitor.active_source,'有线 USB')
                     self.assertTrue(monitor.mark_incident('window_button'))
                     marker=json.loads((Path(temp)/'manual-markers.jsonl').read_text(encoding='utf-8').splitlines()[-1])
                     self.assertEqual(marker['last_input_source'],'有线 USB')

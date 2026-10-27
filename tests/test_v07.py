@@ -114,7 +114,7 @@ class AppTests(unittest.TestCase):
                     self.assertEqual(rows[0]['outage_id'],rows[1]['outage_id'])
                     self.assertGreaterEqual(rows[1]['duration_seconds'],3)
                     self.assertEqual(rows[0]['operation']['hold_seconds'],1.5)
-                    self.assertNotIn(105,[r[0] for r in tray.menu])
+                    self.assertNotIn(105,[r[0] for r in tray.menu if r is not None])
                     monitor.tray_command(107);self.assertIsNotNone(monitor.manual_outage)
                 finally:monitor.close()
                 rows=[json.loads(s) for s in (Path(temp)/'manual-markers.jsonl').read_text(encoding='utf8').splitlines()]

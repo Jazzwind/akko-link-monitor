@@ -59,6 +59,7 @@ class App:
         self.bt_status=None;self.bt_observed=None;self.bt_error=None
         self.bt_battery=None;self.bt_battery_error=None
         self.active_source='';self.last_sources={}
+        self.battery_preview_source=''
         self.last_rf_activity=None;self.rf_probes_active=False
         self.battery=None; self.battery_error=None; self.usb=None
         self.last_power_query_manual=False
@@ -294,17 +295,25 @@ class App:
         state=self.registration.read();mode=self.settings.get('launch_mode','ManualWindowStartupTray')
         self.tray.set_menu([
           (100,'显示监控窗口',False,True,[]),(101,'刷新电量',False,True,[]),
-          (102,'最近标记：'+('无（双击托盘记录）' if self.last_marker_text=='尚未手动标记' else self.last_marker_text),False,False,[]),(103,'打开日志目录',False,True,[]),
+          None,
+          (108,'标记一次卡顿（双击图标）',False,True,[]),
+          (107,('结束' if self.manual_outage else '开始')+'长断联标记（长按 1 秒松开）',bool(self.manual_outage),True,[]),
+          (102,'最近标记：'+('无（双击托盘记录）' if self.last_marker_text=='尚未手动标记' else self.last_marker_text),False,False,[]),
+          None,(103,'打开日志目录',False,True,[]),
           (104,'打开本地数据目录',False,True,[]),
+          None,
           (106,'停止 USB 报告计时' if self.report_folder else '启用 USB 报告计时（需 UAC）',False,True,[]),
-          (107,'结束长断联标记' if self.manual_outage else '开始长断联标记',bool(self.manual_outage),True,[]),
+          None,
           (110,state.label,state.registered,True,[]),
           (0,'启动时隐藏窗口',False,True,[(120+i,label,key==mode,True,[]) for i,(key,label) in enumerate(MODES.items())]),
-          (130,'退出',False,True,[])])
+          None,(130,'退出',False,True,[])])
+
+    def battery_display_source(self):
+        return self.battery_preview_source or self.active_source
 
     def refresh_tray(self):
         if not self.tray:return
-        source=self.active_source
+        source=self.battery_display_source()
         sample=self.battery_sample(source)
         value,status=sample[:2]
         stale=value=='' and sample[2]!=''
@@ -320,6 +329,7 @@ class App:
         if status=='manual_query_failed':label='手动刷新失败：'+str(self.battery_error)+'；请确认 2.4G 模式并按键唤醒后重试'
         known='（最后已知，当前未更新）' if stale else ''
         tip=f'AKKO 3098N · {source or "来源待确认"}：{text}%{known}\n{label}；{status}'
+        if self.battery_preview_source:tip+='\n电量来源预览；输入模式仍需按键确认'
         if sample[3]!='':tip+=f'\n距读取 {self.format_elapsed(sample[3])}'
         background=0x273142
         if self.manual_outage:
@@ -329,7 +339,7 @@ class App:
         if self.hold_preview:
             text='…';background=0x8b3ac6;fg=0xffffff
             tip=('松开以结束长断联标记' if self.manual_outage else '松开以开始长断联标记')+'\n'+tip
-        if self.mark_feedback:
+        if self.mark_feedback and not self.hold_preview:
             symbol,bg,message,until=self.mark_feedback
             if time.perf_counter()<until:text=symbol;background=bg;fg=0xffffff;tip=message+'\n'+tip
             else:self.mark_feedback=None
@@ -367,19 +377,21 @@ class App:
         elif command==104:self.open_folder(BASE)
         elif command==106:self.start_reports();self.refresh_menu()
         elif command==107:self.toggle_manual_outage()
+        elif command==108:self.mark_incident('tray_menu')
         elif command==110:self.registration.set_registered(not self.registration.read().registered);self.refresh_menu()
         elif 120<=command<=122:
             self.settings['launch_mode']=list(MODES)[command-120];self.save_settings();self.refresh_menu()
         elif command==130:self.close()
 
     def refresh_battery_once(self):
-        if self.active_source=='有线 USB':
-            self.battery_label.set('有线 USB：正在记录输入；有线电量协议尚未验证，不查询 2.4G 接收器。')
-            self.note('有线模式手动刷新：不发送未验证的有线电量命令，也不读取接收器电量冒充有线读数。','manual_battery_query')
-        elif self.active_source=='BT1':
+        now=time.perf_counter();last=self.last_sources.get(self.active_source)
+        recent=last is not None and now-last<3
+        if self.active_source=='BT1' or (self.current_bt_status() is True and not recent):
+            self.battery_preview_source='BT1' if self.active_source!='BT1' else ''
             self.telemetry.refresh()
             self.note('手动刷新 BT1：只读取 Windows 电量缓存，不主动查询接收器。','manual_battery_query')
         else:
+            self.battery_preview_source='2.4G' if self.active_source=='有线 USB' else ''
             self.telemetry.refresh_power_once()
             self.battery_label.set('正在手动查询一次接收器电量（可能唤醒键盘）；不会恢复闲置轮询。')
             self.note('手动查询一次 2.4G 接收器电量，绕过闲置及自动查询开关；不延长活动窗口，失败不自动重试。','manual_battery_query')
@@ -466,6 +478,18 @@ class App:
                     old=self.bt_status;self.bt_status=connected
                     self.detector.bluetooth_status(connected,data.get('observed_monotonic',self.bt_observed))
                     if connected and not self.active_source:self.select_source('BT1',self.bt_observed)
+                    if connected and old is not True:
+                        last=self.last_sources.get(self.active_source)
+                        recent=last is not None and self.bt_observed-last<3
+                        if self.active_source not in ('','BT1') and not recent:
+                            self.battery_preview_source='BT1'
+                            self.update_probe_policy(self.bt_observed)
+                            self.render_bt_battery();self.refresh_tray()
+                            self.note('Windows 已观察到 BT1 连接；先显示蓝牙电量缓存，输入来源等待新的按键确认。','battery_source_hint')
+                        self.telemetry.refresh()
+                    elif not connected and self.battery_preview_source=='BT1':
+                        self.battery_preview_source=''
+                        self.update_probe_policy(self.bt_observed);self.render_selected_battery()
                     if old!=connected:self.note('BT1 Windows 连接状态：'+('已连接' if connected else '已断开（也可能主动切换模式 / 关机）'),'bluetooth_status')
             elif kind=='bt_battery':
                 self.bt_battery_error=error
@@ -475,7 +499,7 @@ class App:
                         self.extra_writers['bt_battery'].writerow([
                             datetime.fromtimestamp(data['queried_at']).astimezone().isoformat(),
                             data['percent'],data['status'],self.current_bt_status(),data['cache_freshness'],data['source']])
-                if self.active_source=='BT1':self.render_bt_battery()
+                if self.battery_display_source()=='BT1':self.render_bt_battery()
             elif kind=='usb':
                 if error:self.usb_label.set('USB 描述符读取失败：'+error)
                 else:
@@ -494,14 +518,14 @@ class App:
                 completed=data.get('probe_completed_monotonic',time.perf_counter()) if data else time.perf_counter()
                 if not manual:self.detector.probe(not error, bool(error and data and data.get('error_kind')=='TimeoutError'),completed,data.get('probe_started_monotonic') if data else None)
                 if error:
-                    if self.active_source not in ('BT1','有线 USB'):self.battery_label.set('电量：本次查询失败'+(f"；上次设备上报 {self.battery['percent']}%" if self.battery else '')+'。'+error)
+                    if self.battery_display_source() not in ('BT1','有线 USB'):self.battery_label.set('电量：本次查询失败'+(f"；上次设备上报 {self.battery['percent']}%" if self.battery else '')+'。'+error)
                     if manual:
                         self.mark_feedback=('!',0xd97813,'电量刷新失败：'+error+'\n请确认 2.4G 模式，按键唤醒后再刷新。',time.perf_counter()+5)
                         self.refresh_tray()
                     if self.writers:self.note('电量查询失败：'+error,'battery_error')
                 else:
                     self.battery=data
-                    if self.active_source not in ('BT1','有线 USB'):self.battery_label.set(f"{'手动读取接收器' if manual else '设备上报'}电量：{data['percent']}%  ·  状态原值 {data['power_state_raw']}（含义未验证） · 无线侧缓存 / 估算精度尚未验证")
+                    if self.battery_display_source() not in ('BT1','有线 USB'):self.battery_label.set(f"{'手动读取接收器' if manual else '设备上报'}电量：{data['percent']}%  ·  状态原值 {data['power_state_raw']}（含义未验证） · 无线侧缓存 / 估算精度尚未验证")
                     if self.writers:
                         self.extra_writers['battery'].writerow([datetime.fromtimestamp(data['queried_at']).astimezone().isoformat(),data['percent'],data['power_state_raw'],data['payload_hex'],data['status'],data['charging'],data['wireless_freshness']])
                         self.extra_files[1].flush()
@@ -534,17 +558,27 @@ class App:
         return source_label(path)+' / '+part
 
     def select_source(self,source,now):
-        if source not in ('BT1','2.4G','有线 USB') or source==self.active_source:return
+        if source not in ('BT1','2.4G','有线 USB'):return
+        preview=bool(self.battery_preview_source);self.battery_preview_source=''
+        if source==self.active_source:
+            if preview:self.render_selected_battery()
+            return
         self.active_source=source
         self.update_probe_policy(time.perf_counter())
-        if source=='BT1':self.render_bt_battery()
-        elif source=='有线 USB':self.battery_label.set('有线 USB：正在记录输入；有线电量协议尚未验证，不查询 2.4G 接收器。')
-        else:self.battery_label.set('2.4G 电量：等待本模式查询结果…')
+        # Wake the cache reader on every transition, including wired -> BT1
+        # where the automatic RF enable flag stays false throughout.
+        self.telemetry.refresh()
+        self.render_selected_battery();self.refresh_tray()
         self.note('最近确认输入来源：'+source+'；切换不代表另一连接已恢复，未松开状态继续保留。','input_source')
+
+    def render_selected_battery(self):
+        if self.active_source=='BT1':self.render_bt_battery()
+        elif self.active_source=='有线 USB':self.battery_label.set('最近输入来自有线 USB；切换模式后请按一个键确认。手动刷新可预览无线电量。')
+        else:self.battery_label.set('2.4G 电量：正在刷新本模式读数…')
 
     def update_probe_policy(self,now):
         recent=self.last_rf_activity is not None and 0<=now-self.last_rf_activity<RF_IDLE_SECONDS
-        enabled=bool(self.probes_enabled.get() and self.active_source=='2.4G' and recent)
+        enabled=bool(self.probes_enabled.get() and self.active_source=='2.4G' and recent and self.battery_preview_source!='BT1')
         if enabled==self.rf_probes_active:return
         self.rf_probes_active=enabled
         idle=self.probes_enabled.get() and self.active_source=='2.4G' and not recent
@@ -553,7 +587,7 @@ class App:
         self.telemetry.set_battery_enabled(enabled)
         message=('收到近期 2.4G 输入，恢复主动电量查询。' if enabled else
                  f'2.4G 闲置 {RF_IDLE_SECONDS} 秒，暂停主动电量查询及查询失联判定；未确认键盘休眠或恢复。' if idle else
-                 '暂停 2.4G 主动查询（开关关闭或当前来源不是 2.4G）。')
+                 '暂停 2.4G 主动查询（按开关、输入来源或 BT1 连接提示）。')
         self.note(message,'power_query_policy')
         if idle:self.battery_label.set('2.4G 电量：闲置暂停查询，等待新的按键；上次读数仅供参考。')
 
@@ -563,7 +597,7 @@ class App:
         if self.bt_error:bt='状态读取失败：'+self.bt_error
         elif self.bt_observed is not None and now-self.bt_observed>5:bt='状态观察已过期，连接未知'
         self.bt_label.set('BT1：'+bt+'  ·  最近确认输入来源：'+(self.active_source or '等待输入'))
-        if self.active_source=='BT1':self.render_bt_battery()
+        if self.battery_display_source()=='BT1':self.render_bt_battery()
         for path, m in self.metrics.items():
             values = (self.interface(path), m.downs, m.ups, m.repeats, len(m.pressed), m.orphans, f'{now-m.last_event:.1f} s' if m.last_event else '—')
             if self.tree.exists(path): self.tree.item(path, values=values)
@@ -862,6 +896,7 @@ class App:
                'power_queries_active':self.rf_probes_active,'power_query_idle_seconds':RF_IDLE_SECONDS,
                'device_access_policy':'os_inventory_only_usb_descriptors_on_demand',
                'last_observed_input_source':self.active_source,'bluetooth_connected':self.current_bt_status(),
+               'battery_preview_source':self.battery_preview_source,
                'bluetooth_battery':self.bt_battery,'bluetooth_battery_error':self.bt_battery_error,
                'manual_prolonged_disconnect':dict(self.manual_outage,duration_seconds=round(max(0,now-self.manual_outage['started_monotonic']),3)) if self.manual_outage else None,
                'events':rows}
